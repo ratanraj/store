@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -207,4 +208,38 @@ func (s *Server) Message(c *gin.Context) {
 	blockB64 := base64.StdEncoding.EncodeToString(buf.Bytes())
 
 	s.rdb.LPush(ctx, "blocks", blockB64)
+}
+
+// 1:  Get the number of completed blocks.
+func (s *Server) GetNumberOfBlocks(c *gin.Context) {
+	n, err := s.rdb.LLen(ctx, "blocks").Result()
+	if err != nil {
+		panic(err)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"number_of_blocks": n})
+}
+
+// 2:  Get the block identified by index in the list.
+func (s *Server) GetNBlock(c *gin.Context) {
+	x := c.Query("n")
+	n, err := strconv.ParseInt(x, 10, 64)
+	if err != nil {
+		n = 0
+	}
+	res, err := s.rdb.LIndex(ctx, "blocks", n).Result()
+	if err != nil {
+		panic(err)
+	}
+	b, err := base64.StdEncoding.DecodeString(res)
+	if err != nil {
+		panic(err)
+	}
+	var blk store.Block
+	err = json.Unmarshal(b, &blk)
+	if err != nil {
+		panic(err)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"block": blk})
 }
