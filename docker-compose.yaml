@@ -1,0 +1,19 @@
+version: "3"
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile-server
+    ports:
+      - "8080:8080"
+  redis:
+    image: "redis:alpine"
+  client:
+    build:
+      context: .
+      dockerfile: Dockerfile-client
+    deploy:
+      replicas: 10
+
+
+
