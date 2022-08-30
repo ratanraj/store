@@ -39,51 +39,6 @@ var privateKey *rsa.PrivateKey
 
 const serverAddr = "http://server:8080"
 
-func KeyGen() error {
-	privatekey, err := rsa.GenerateKey(crypto_rand.Reader, 2048)
-	if err != nil {
-		return err
-	}
-
-	publicKey := &privatekey.PublicKey
-
-	var privateKeyBytes []byte = x509.MarshalPKCS1PrivateKey(privatekey)
-	privateKeyBlock := &pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: privateKeyBytes,
-	}
-
-	privatePem, err := os.Create("private.pem")
-	if err != nil {
-		return err
-	}
-	err = pem.Encode(privatePem, privateKeyBlock)
-	if err != nil {
-		return err
-	}
-
-	publicKeyBytes, err := x509.MarshalPKIXPublicKey(publicKey)
-	if err != nil {
-		return err
-	}
-
-	publicKeyBlock := &pem.Block{
-		Type:  "PUBLIC KEY",
-		Bytes: publicKeyBytes,
-	}
-
-	publicPem, err := os.Create("public.pem")
-	if err != nil {
-		return err
-	}
-	err = pem.Encode(publicPem, publicKeyBlock)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func LoadKeys() (*rsa.PublicKey, *rsa.PrivateKey, error) {
 	// Load Public Key
 	publicKeyBytes, err := ioutil.ReadFile("public.pem")
@@ -119,9 +74,20 @@ func LoadKeys() (*rsa.PublicKey, *rsa.PrivateKey, error) {
 }
 
 func RegisterClient() {
+	pubKeyPresent := true
+	prvKeyPresent := true
+
 	_, err = os.Stat("public.pem")
 	if err != nil {
-		KeyGen()
+		pubKeyPresent = false
+	}
+	_, err = os.Stat("private.pem")
+	if err != nil {
+		prvKeyPresent = false
+	}
+
+	if !pubKeyPresent || !prvKeyPresent {
+		store.GenerateKeypair()
 	}
 
 	publicKey, privateKey, err = LoadKeys()
@@ -129,26 +95,10 @@ func RegisterClient() {
 		panic(err)
 	}
 
-	publicKeyBytes, err := ioutil.ReadFile("public.pem")
-	if err != nil {
-		panic(err)
-	}
-
-	pubKeyBase64 := base64.StdEncoding.EncodeToString(publicKeyBytes)
+	pubKeyBase64 := store.LoadPublicKeyAsString()
 
 	formValues := url.Values{"public_key": {pubKeyBase64}}
-
-	uuidFP, err := os.Open("uuid.json")
-	if err == nil {
-		var clientUUID store.RegisterResponse
-		d := json.NewDecoder(uuidFP)
-		err = d.Decode(&clientUUID)
-		if err != nil {
-			panic(err)
-		}
-		formValues["uuid"] = []string{clientUUID.UUID}
-	}
-	defer uuidFP.Close()
+	formValues["uuid"] = []string{store.LoadClientID()}
 
 	resp, err := http.PostForm(fmt.Sprintf("%s/register", serverAddr), formValues)
 	if err != nil {
@@ -221,9 +171,8 @@ func getRandomMessage() string {
 }
 
 func main() {
-	var clientUUID store.RegisterResponse
 
-	uuidFP, err := os.Open("uuid.json")
+	_, err := os.Open("uuid.json")
 	if err != nil {
 		RegisterClient()
 	} else {
@@ -234,16 +183,7 @@ func main() {
 		}
 	}
 
-	uuidFP, err = os.Open("uuid.json")
-	if err != nil {
-		panic("failed to register")
-	}
-
-	d := json.NewDecoder(uuidFP)
-	err = d.Decode(&clientUUID)
-	if err != nil {
-		panic(err)
-	}
+	clientUUID := store.LoadClientID()
 
 	loadMessageData()
 
@@ -269,7 +209,7 @@ func main() {
 		m1 := requestBody{
 			Message:   m,
 			Signature: base64.StdEncoding.EncodeToString(signedMessage),
-			UUID:      clientUUID.UUID,
+			UUID:      clientUUID,
 		}
 
 		enc := json.NewEncoder(buf)
